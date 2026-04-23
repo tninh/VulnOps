@@ -1,0 +1,168 @@
+version: "3.9"
+
+# VulnOps — Full Stack Docker Compose
+# Run: docker compose up --build
+# Dashboard: http://localhost:3000
+# Ingest API: http://localhost:8001/docs
+# Prioritizer API: http://localhost:8002/docs
+# Grafana: http://localhost:3001 (admin/vulnops)
+
+services:
+
+  # ─── Data layer ───────────────────────────────────────────────
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: vulnops
+      POSTGRES_USER: vulnops
+      POSTGRES_PASSWORD: vulnops
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vulnops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+
+  # ─── Application services ──────────────────────────────────────
+
+  ingest:
+    build:
+      context: ./ingest
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://vulnops:vulnops@postgres:5432/vulnops
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  enrichment:
+    build:
+      context: ./enrichment
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://vulnops:vulnops@postgres:5432/vulnops
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      replicas: 2  # run 2 enrichment workers in parallel
+
+  prioritizer:
+    build:
+      context: ./prioritizer
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://vulnops:vulnops@postgres:5432/vulnops
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+
+  remediation:
+    build:
+      context: ./remediation
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://vulnops:vulnops@postgres:5432/vulnops
+      JIRA_URL: ${JIRA_URL:-}
+      JIRA_USER: ${JIRA_USER:-}
+      JIRA_TOKEN: ${JIRA_TOKEN:-}
+      JIRA_PROJECT: ${JIRA_PROJECT:-VULN}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      ANSIBLE_PLAYBOOKS_DIR: /playbooks
+    volumes:
+      - ./remediation:/playbooks
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8003:8000"
+    restart: unless-stopped
+
+  # ─── Dashboard ────────────────────────────────────────────────
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_INGEST_API: http://localhost:8001
+      NEXT_PUBLIC_PRIORITIZER_API: http://localhost:8002
+      NEXT_PUBLIC_REMEDIATION_API: http://localhost:8003
+    depends_on:
+      - prioritizer
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # ─── Observability ────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: vulnops
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

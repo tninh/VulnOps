@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VulnOps — Vulnerability Operations Center</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red:#E24B4A;--orange:#EF9F27;--blue:#378ADD;--teal:#1D9E75;
+    --gray-900:#0e0e10;--gray-800:#16161a;--gray-700:#1e1e24;
+    --gray-600:#2a2a34;--gray-500:#3d3d4d;--gray-400:#888798;
+    --gray-200:#c4c3cf;--gray-100:#ededf5;
+    --mono:'Space Mono',monospace;--sans:'DM Sans',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--gray-900);color:var(--gray-100);font-family:var(--sans);font-size:14px;min-height:100vh;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,.03) 2px,rgba(255,255,255,.03) 4px);pointer-events:none;z-index:9999}
+  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--gray-800)}::-webkit-scrollbar-thumb{background:var(--gray-600);border-radius:3px}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* Header */
+  .header{background:var(--gray-800);border-bottom:1px solid var(--gray-600);padding:0 32px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .logo{font-family:var(--mono);font-size:15px;font-weight:700;letter-spacing:.08em;color:var(--gray-100);display:flex;align-items:center;gap:10px}
+  .logo-icon{width:28px;height:28px;border:1.5px solid var(--red);border-radius:4px;display:flex;align-items:center;justify-content:center}
+  .logo-dot{width:10px;height:10px;background:var(--red);border-radius:50%;animation:pulse 2s infinite}
+  .header-right{display:flex;align-items:center;gap:24px;font-family:var(--mono);font-size:11px;color:var(--gray-400)}
+  .status-pill{display:flex;align-items:center;gap:6px}
+  .status-dot{width:6px;height:6px;border-radius:50%}
+
+  /* Layout */
+  .layout{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 56px)}
+  .sidebar{background:var(--gray-800);border-right:1px solid var(--gray-600);padding:24px 0}
+  .nav-section{padding:0 16px;margin-bottom:24px}
+  .nav-label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--gray-400);text-transform:uppercase;padding:0 8px;margin-bottom:8px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;cursor:pointer;color:var(--gray-400);font-size:13px;transition:all .15s;border:1px solid transparent}
+  .nav-item:hover{background:var(--gray-700);color:var(--gray-100)}
+  .nav-item.active{background:var(--gray-700);color:var(--gray-100);border-color:var(--gray-500)}
+  .nav-badge{margin-left:auto;background:var(--red);color:white;font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:3px;font-weight:700}
+  .main{padding:28px 32px;overflow-y:auto}
+  .page{display:none}.page.active{display:block}
+  .page-sub{font-family:var(--mono);font-size:13px;letter-spacing:.08em;color:var(--gray-400);text-transform:uppercase;margin-bottom:4px}
+  .page-title{font-size:22px;font-weight:500;color:var(--gray-100);margin-bottom:24px;letter-spacing:-.02em}
+
+  /* Error banner */
+  .error-banner{background:rgba(226,75,74,.1);border:1px solid rgba(226,75,74,.3);border-radius:6px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px;color:#f87171}
+  .error-banner button{background:none;border:none;color:#f87171;cursor:pointer;font-family:var(--mono);font-size:12px}
+
+  /* Spinner */
+  .spinner{display:inline-block;border:2px solid var(--gray-600);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+
+  /* Stat cards */
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+  .stat-card{background:var(--gray-800);border:1px solid var(--gray-600);border-radius:8px;padding:18px 20px;position:relative;overflow:hidden;transition:border-color .2s;animation:fadeUp .4s ease both}
+  .stat-card:hover{border-color:var(--gray-500)}
+  .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent,var(--gray-500))}
+  .stat-label{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--gray-400);text-transform:uppercase;margin-bottom:10px}
+  .stat-value{font-family:var(--mono);font-size:32px;font-weight:700;line-height:1}
+  .stat-sub{font-size:12px;color:var(--gray-400);margin-top:6px}
+
+  /* Charts */
+  .charts-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:28px}
+  .chart-card{background:var(--gray-800);border:1px solid var(--gray-600);border-radius:8px;padding:20px}
+  .chart-title{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--gray-400);text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .bar-chart{display:flex;flex-direction:column;gap:10px}
+  .bar-row{display:grid;grid-template-columns:80px 1fr 40px;align-items:center;gap:10px}
+  .bar-label{font-family:var(--mono);font-size:11px;color:var(--gray-400);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar-track{background:var(--gray-700);border-radius:2px;height:18px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:2px;transition:width 1s cubic-bezier(.4,0,.2,1)}
+  .bar-count{font-family:var(--mono);font-size:11px;color:var(--gray-200);text-align:right}
+  .donut-wrap{display:flex;align-items:center;gap:20px}
+  .donut-legend{flex:1}
+  .legend-item{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--gray-200)}
+  .legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .legend-count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--gray-400)}
+
+  /* Table */
+  .table-card{background:var(--gray-800);border:1px solid var(--gray-600);border-radius:8px;overflow:hidden;margin-bottom:28px}
+  .table-header{padding:16px 20px;border-bottom:1px solid var(--gray-600);display:flex;align-items:center;justify-content:space-between}
+  .table-title-wrap{display:flex;align-items:center;gap:10px}
+  .table-title{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--gray-400);text-transform:uppercase}
+  .filter-pills{display:flex;gap:6px}
+  .pill{font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:4px;border:1px solid var(--gray-500);color:var(--gray-400);cursor:pointer;transition:all .15s;background:transparent;letter-spacing:.05em}
+  .pill:hover,.pill.active{background:var(--gray-700);color:var(--gray-100);border-color:var(--gray-400)}
+  table{width:100%;border-collapse:collapse}
+  thead th{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--gray-400);text-transform:uppercase;padding:10px 20px;text-align:left;border-bottom:1px solid var(--gray-600);background:var(--gray-700)}
+  tbody tr{border-bottom:1px solid var(--gray-700);cursor:pointer;transition:background .1s}
+  tbody tr:hover{background:rgba(255,255,255,.02)}
+  tbody tr:last-child{border-bottom:none}
+  td{padding:12px 20px;vertical-align:middle}
+  .cve-id{font-family:var(--mono);font-size:12px;color:var(--blue);font-weight:700}
+  .asset-name{font-family:var(--mono);font-size:12px;color:var(--gray-200)}
+  .score-val{font-family:var(--mono);font-size:12px;color:var(--gray-200)}
+  .score-val.danger{color:var(--red)}
+  .epss-bar{height:4px;border-radius:2px;background:var(--gray-700);margin-top:3px;overflow:hidden}
+  .epss-fill{height:100%;border-radius:2px}
+  .empty-row td{padding:24px;font-family:var(--mono);font-size:12px;color:var(--gray-400);text-align:center}
+
+  /* Badges */
+  .severity-badge{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;letter-spacing:.05em}
+  .sev-CRITICAL{background:rgba(226,75,74,.15);color:#f87171;border:1px solid rgba(226,75,74,.3)}
+  .sev-HIGH{background:rgba(239,159,39,.15);color:#fbbf24;border:1px solid rgba(239,159,39,.3)}
+  .sev-MEDIUM{background:rgba(55,138,221,.15);color:#60a5fa;border:1px solid rgba(55,138,221,.3)}
+  .sev-LOW{background:rgba(29,158,117,.15);color:#34d399;border:1px solid rgba(29,158,117,.3)}
+  .sla-badge{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:3px}
+  .sla-breached{background:rgba(226,75,74,.15);color:#f87171;border:1px solid rgba(226,75,74,.3)}
+  .sla-warning{background:rgba(239,159,39,.15);color:#fbbf24;border:1px solid rgba(239,159,39,.3)}
+  .sla-ok{background:rgba(29,158,117,.1);color:#34d399;border:1px solid rgba(29,158,117,.2)}
+  .status-badge{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:3px;background:var(--gray-700);color:var(--gray-400);border:1px solid var(--gray-500)}
+  .status-badge.remediated{background:rgba(29,158,117,.1);color:#34d399;border-color:rgba(29,158,117,.3)}
+  .status-badge.ticketed{background:rgba(55,138,221,.1);color:#60a5fa;border-color:rgba(55,138,221,.3)}
+  .status-badge.prioritized{background:rgba(239,159,39,.1);color:#fbbf24;border-color:rgba(239,159,39,.3)}
+
+  /* Detail panel */
+  .detail-panel{position:fixed;top:56px;right:0;width:480px;height:calc(100vh - 56px);background:var(--gray-800);border-left:1px solid var(--gray-600);overflow-y:auto;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);z-index:200;padding:28px}
+  .detail-panel.open{transform:translateX(0)}
+  .detail-close{position:absolute;top:20px;right:20px;background:var(--gray-700);border:1px solid var(--gray-600);color:var(--gray-400);cursor:pointer;padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:12px;transition:all .15s}
+  .detail-close:hover{color:var(--gray-100);background:var(--gray-600)}
+  .detail-cve{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--blue);margin-bottom:4px}
+  .detail-asset{font-size:13px;color:var(--gray-400);margin-bottom:20px}
+  .detail-badges{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+  .detail-section{margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--gray-700)}
+  .detail-section:last-child{border-bottom:none}
+  .detail-section-title{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--gray-400);margin-bottom:12px}
+  .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .detail-field-label{font-size:10px;color:var(--gray-400);font-family:var(--mono);letter-spacing:.05em;margin-bottom:3px}
+  .detail-field-value{font-family:var(--mono);font-size:13px;color:var(--gray-100)}
+  .detail-description{font-size:13px;color:var(--gray-200);line-height:1.6}
+  .ai-rationale{background:var(--gray-700);border:1px solid var(--gray-600);border-left:3px solid var(--blue);border-radius:0 6px 6px 0;padding:14px;font-size:13px;color:var(--gray-200);line-height:1.6;font-style:italic}
+  .remediation-step{display:flex;gap:12px;margin-bottom:10px;align-items:flex-start}
+  .step-num{font-family:var(--mono);font-size:10px;font-weight:700;width:20px;height:20px;background:var(--gray-700);border:1px solid var(--gray-600);border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--gray-400);margin-top:1px}
+  .step-text{font-size:13px;color:var(--gray-200);line-height:1.5}
+  .compensating-block{margin-top:12px;padding:10px 12px;background:var(--gray-700);border-radius:6px;border-left:2px solid var(--orange)}
+  .compensating-label{font-family:var(--mono);font-size:10px;color:var(--orange);margin-bottom:4px;letter-spacing:.08em}
+  .compensating-text{font-size:12px;color:var(--gray-200)}
+  .detail-actions{display:flex;gap:8px;margin-top:20px}
+  .jira-badge{font-family:var(--mono);font-size:11px;color:var(--blue);padding:3px 8px;background:rgba(55,138,221,.1);border:1px solid rgba(55,138,221,.3);border-radius:3px}
+
+  /* Buttons */
+  .btn{font-family:var(--mono);font-size:11px;letter-spacing:.05em;padding:8px 16px;border-radius:5px;cursor:pointer;border:1px solid;transition:all .15s;display:inline-flex;align-items:center;gap:8px}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn-primary{background:var(--blue);border-color:var(--blue);color:white}
+  .btn-primary:hover:not(:disabled){opacity:.85}
+  .btn-outline{background:transparent;border-color:var(--gray-500);color:var(--gray-400)}
+  .btn-outline:hover:not(:disabled){background:var(--gray-700);color:var(--gray-100)}
+
+  /* Pipeline */
+  .pipeline-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
+  .pipeline-col{background:var(--gray-800);border:1px solid var(--gray-600);border-radius:8px;overflow:hidden}
+  .pipeline-col-header{padding:12px 16px;border-bottom:1px solid var(--gray-600);display:flex;align-items:center;justify-content:space-between}
+  .pipeline-col-title{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .pipeline-col-count{font-family:var(--mono);font-size:11px;background:var(--gray-700);border:1px solid var(--gray-600);padding:2px 8px;border-radius:3px;color:var(--gray-400)}
+  .pipeline-items{padding:12px;display:flex;flex-direction:column;gap:8px;min-height:200px}
+  .pipeline-card{background:var(--gray-700);border:1px solid var(--gray-600);border-radius:6px;padding:10px 12px;cursor:pointer;transition:border-color .15s}
+  .pipeline-card:hover{border-color:var(--gray-400)}
+  .pipeline-card-cve{font-family:var(--mono);font-size:11px;color:var(--blue);margin-bottom:4px}
+  .pipeline-card-asset{font-size:11px;color:var(--gray-400);margin-bottom:6px}
+  .pipeline-card-meta{display:flex;justify-content:space-between;align-items:center}
+  .pipeline-empty{color:var(--gray-400);font-size:12px;font-family:var(--mono);padding:8px}
+
+  /* Ingest */
+  .ingest-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+  .ingest-log{background:var(--gray-800);border:1px solid var(--gray-600);border-radius:8px;padding:20px;font-family:var(--mono);font-size:12px;color:var(--teal);white-space:pre-wrap;line-height:1.8;min-height:60px;display:none}
+  .ingest-log.visible{display:block}
+
+  /* Docs */
+  .endpoint-row{display:grid;grid-template-columns:60px 160px 200px 1fr;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid var(--gray-700)}
+  .endpoint-row:last-child{border-bottom:none}
+  .method-badge{font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:3px;text-align:center}
+  .endpoint-svc{font-family:var(--mono);font-size:10px;color:var(--gray-400)}
+  .endpoint-path{font-family:var(--mono);font-size:12px;color:var(--blue)}
+  .endpoint-desc{font-size:13px;color:var(--gray-400)}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon"><div class="logo-dot"></div></div>
+    VULNOPS
+  </div>
+  <div class="header-right">
+    <div class="status-pill" id="health-indicator">
+      <div class="spinner" style="width:10px;height:10px;border-width:1.5px"></div>
+      <span>CONNECTING...</span>
+    </div>
+    <div class="status-pill" id="sla-indicator" style="display:none;color:var(--red)">
+      <div class="status-dot" style="background:var(--red);animation:pulse 1.5s infinite"></div>
+      <span id="sla-breach-label"></span>
+    </div>
+    <span id="live-clock" style="letter-spacing:.05em"></span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="sidebar">
+    <div class="nav-section">
+      <div class="nav-label">Operations</div>
+      <div class="nav-item active" onclick="nav('dashboard',this)"><span style="font-size:14px;opacity:.7">⬡</span> Dashboard</div>
+      <div class="nav-item" onclick="nav('vulnerabilities',this)"><span style="font-size:14px;opacity:.7">◈</span> Vulnerabilities <span class="nav-badge" id="open-badge" style="display:none"></span></div>
+      <div class="nav-item" onclick="nav('pipeline',this)"><span style="font-size:14px;opacity:.7">⟿</span> Pipeline</div>
+      <div class="nav-item" onclick="nav('audit',this)"><span style="font-size:14px;opacity:.7">≡</span> Audit Log</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">System</div>
+      <div class="nav-item" onclick="nav('ingest',this)"><span style="font-size:14px;opacity:.7">↓</span> Ingest Scan</div>
+      <div class="nav-item" onclick="nav('docs',this)"><span style="font-size:14px;opacity:.7">◻</span> API Docs</div>
+    </div>
+  </nav>
+
+  <main class="main">
+    <div id="global-error" class="error-banner" style="display:none">
+      <span id="global-error-msg"></span>
+      <button onclick="document.getElementById('global-error').style.display='none'">✕</button>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-sub">Overview</div>
+      <div class="page-title">Security Operations Center</div>
+      <div class="stat-grid">
+        <div class="stat-card" style="--accent:var(--red);animation-delay:0s">
+          <div class="stat-label">Critical Vulns</div>
+          <div class="stat-value" id="s-critical" style="color:var(--red)">—</div>
+          <div class="stat-sub">Requires immediate patch</div>
+        </div>
+        <div class="stat-card" style="--accent:var(--orange);animation-delay:.05s">
+          <div class="stat-label">High Severity</div>
+          <div class="stat-value" id="s-high" style="color:var(--orange)">—</div>
+          <div class="stat-sub">Patch within 7 days</div>
+        </div>
+        <div class="stat-card" style="--accent:#A32D2D;animation-delay:.1s">
+          <div class="stat-label">SLA Breached</div>
+          <div class="stat-value" id="s-sla" style="color:var(--red)">—</div>
+          <div class="stat-sub" id="s-sla-sub">— at risk within 48h</div>
+        </div>
+        <div class="stat-card" style="--accent:var(--teal);animation-delay:.15s">
+          <div class="stat-label">Remediated</div>
+          <div class="stat-value" id="s-remediated" style="color:var(--teal)">—</div>
+          <div class="stat-sub" id="s-total-sub">of — total</div>
+        </div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Severity Distribution</div>
+          <div class="bar-chart" id="severity-bars"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Status Breakdown</div>
+          <div class="donut-wrap">
+            <svg id="donut-svg" viewBox="0 0 80 80" width="80" height="80" style="flex-shrink:0"></svg>
+            <div class="donut-legend" id="donut-legend"></div>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Top Exposed Assets</div>
+          <div class="bar-chart" id="asset-bars"></div>
+        </div>
+      </div>
+      <div class="table-card">
+        <div class="table-header">
+          <div class="table-title-wrap">
+            <span class="table-title">Critical &amp; High Vulnerabilities</span>
+            <div class="spinner" id="dash-spinner" style="width:12px;height:12px;display:none"></div>
+          </div>
+          <div class="filter-pills" id="dash-filters">
+            <button class="pill active" onclick="dashFilter('all',this)">All</button>
+            <button class="pill" onclick="dashFilter('CRITICAL',this)">Critical</button>
+            <button class="pill" onclick="dashFilter('HIGH',this)">High</button>
+          </div>
+        </div>
+        <table><thead><tr>
+          <th>CVE ID</th><th>Asset</th><th>Severity</th><th>CVSS</th><th>EPSS</th><th>SLA</th><th>Status</th>
+        </tr></thead><tbody id="dash-tbody"></tbody></table>
+      </div>
+    </div>
+
+    <!-- Vulnerabilities -->
+    <div class="page" id="page-vulnerabilities">
+      <div class="page-sub">All Vulnerabilities</div>
+      <div class="page-title">Vulnerability Inventory</div>
+      <div class="table-card">
+        <div class="table-header">
+          <div class="table-title-wrap">
+            <span class="table-title">Full Inventory</span>
+            <div class="spinner" id="vuln-spinner" style="width:12px;height:12px;display:none"></div>
+          </div>
+          <div class="filter-pills" id="vuln-filters">
+            <button class="pill active" onclick="vulnFilter('all',this)">All</button>
+            <button class="pill" onclick="vulnFilter('CRITICAL',this)">Critical</button>
+            <button class="pill" onclick="vulnFilter('HIGH',this)">High</button>
+            <button class="pill" onclick="vulnFilter('MEDIUM',this)">Medium</button>
+            <button class="pill" onclick="vulnFilter('LOW',this)">Low</button>
+          </div>
+        </div>
+        <table><thead><tr>
+          <th>CVE ID</th><th>Asset</th><th>Package</th><th>Severity</th><th>CVSS</th><th>EPSS</th><th>SLA</th><th>Status</th>
+        </tr></thead><tbody id="vuln-tbody"></tbody></table>
+      </div>
+    </div>
+
+    <!-- Pipeline -->
+    <div class="page" id="page-pipeline">
+      <div class="page-sub">Remediation</div>
+      <div class="page-title">Remediation Pipeline</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <button class="btn btn-primary" id="prioritize-btn" onclick="runPrioritization()">▶ Run AI Prioritization</button>
+        <span id="prioritize-result" style="font-family:var(--mono);font-size:11px;display:none"></span>
+      </div>
+      <div class="pipeline-grid">
+        <div class="pipeline-col">
+          <div class="pipeline-col-header"><span class="pipeline-col-title" style="color:var(--gray-400)">Enriched</span><span class="pipeline-col-count" id="col-enriched-count">0</span></div>
+          <div class="pipeline-items" id="col-enriched"></div>
+        </div>
+        <div class="pipeline-col">
+          <div class="pipeline-col-header"><span class="pipeline-col-title" style="color:var(--orange)">Prioritized</span><span class="pipeline-col-count" id="col-prioritized-count">0</span></div>
+          <div class="pipeline-items" id="col-prioritized"></div>
+        </div>
+        <div class="pipeline-col">
+          <div class="pipeline-col-header"><span class="pipeline-col-title" style="color:var(--blue)">Ticketed</span><span class="pipeline-col-count" id="col-ticketed-count">0</span></div>
+          <div class="pipeline-items" id="col-ticketed"></div>
+        </div>
+        <div class="pipeline-col">
+          <div class="pipeline-col-header"><span class="pipeline-col-title" style="color:var(--teal)">Remediated</span><span class="pipeline-col-count" id="col-remediated-count">0</span></div>
+          <div class="pipeline-items" id="col-remediated"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audit -->
+    <div class="page" id="page-audit">
+      <div class="page-sub">Compliance</div>
+      <div class="page-title">Audit Trail</div>
+      <div class="table-card">
+        <div class="table-header">
+          <div class="table-title-wrap">
+            <span class="table-title">All Audit Events</span>
+            <div class="spinner" id="audit-spinner" style="width:12px;height:12px;display:none"></div>
+          </div>
+        </div>
+        <table><thead><tr>
+          <th>Timestamp</th><th>Vuln ID</th><th>Action</th><th>From</th><th>To</th><th>Actor</th><th>Notes</th>
+        </tr></thead><tbody id="audit-tbody"><tr class="empty-row"><td colspan="7">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- Ingest -->
+    <div class="page" id="page-ingest">
+      <div class="page-sub">Data Ingestion</div>
+      <div class="page-title">Ingest Vulnerability Scan</div>
+      <input type="file" id="file-input" accept=".json,.xml" style="display:none" onchange="handleFileUpload(event)">
+      <div class="ingest-grid">
+        <div class="chart-card">
+          <div class="chart-title">Trivy Container Scan</div>
+          <p style="color:var(--gray-400);font-size:13px;line-height:1.6;margin-bottom:16px">
+            Upload a Trivy JSON scan file.<br>
+            Generate: <code style="font-family:var(--mono);font-size:11px;color:var(--blue)">trivy image --format json -o scan.json &lt;image&gt;</code>
+          </p>
+          <button class="btn btn-primary" id="trivy-btn" onclick="triggerUpload('trivy')">↑ Upload JSON File</button>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">OpenSCAP Compliance Scan</div>
+          <p style="color:var(--gray-400);font-size:13px;line-height:1.6;margin-bottom:16px">
+            Upload an OpenSCAP XML results file.<br>
+            Generate: <code style="font-family:var(--mono);font-size:11px;color:var(--blue)">oscap xccdf eval --results results.xml &lt;policy&gt;</code>
+          </p>
+          <button class="btn btn-primary" id="openscap-btn" onclick="triggerUpload('openscap')">↑ Upload XML File</button>
+        </div>
+      </div>
+      <div class="ingest-log" id="ingest-log"></div>
+    </div>
+
+    <!-- Docs -->
+    <div class="page" id="page-docs">
+      <div class="page-sub">Developer Reference</div>
+      <div class="page-title">API Documentation</div>
+      <div class="chart-card">
+        <div class="chart-title">Service Endpoints</div>
+        <div id="docs-endpoints"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Detail panel -->
+<div class="detail-panel" id="detail-panel">
+  <button class="detail-close" onclick="closeDetail()">✕ Close</button>
+  <div id="detail-content"></div>
+</div>
+
+<script>
+// ─── API config ───────────────────────────────────────────────────────────────
+// Override via window globals from a config script tag before this one if needed
+const API = {
+  ingest:      window.__VULNOPS_INGEST_URL__      || 'http://localhost:8001',
+  prioritizer: window.__VULNOPS_PRIORITIZER_URL__ || 'http://localhost:8002',
+  remediation: window.__VULNOPS_REMEDIATION_URL__ || 'http://localhost:8003',
+};
+
+// ─── API functions ────────────────────────────────────────────────────────────
+
+async function apiFetch(url, opts={}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', ...(opts.headers||{}) },
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`${res.status}: ${t}`); }
+  return res.json();
+}
+
+// GET /stats → prioritizer:8002
+// Returns: { total, critical, high, medium, low, open_count, remediated_count,
+//            sla_breached, sla_warning, avg_cvss, avg_epss, top_assets, by_source }
+const apiStats = () => apiFetch(`${API.prioritizer}/stats`);
+
+// GET /vulnerabilities → prioritizer:8002
+// Query: severity, status, risk_tier, limit (≤500), offset
+// Returns: array of DB rows — id is a UUID string
+const apiVulns = (params={}) => {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([,v]) => v && v !== 'all')
+  ).toString();
+  return apiFetch(`${API.prioritizer}/vulnerabilities?${qs}&limit=500`);
+};
+
+// PATCH /vulnerabilities/{id}/status → prioritizer:8002
+// NOTE: FastAPI takes status/notes/actor as QUERY PARAMS, not JSON body
+// Returns: { message, old_status, new_status }
+const apiPatchStatus = (id, status, notes='', actor='dashboard-user') => {
+  const qs = new URLSearchParams({ status, notes, actor }).toString();
+  return apiFetch(`${API.prioritizer}/vulnerabilities/${id}/status?${qs}`, { method:'PATCH' });
+};
+
+// GET /audit-log → remediation:8003
+// Returns: [{ id, vuln_id (UUID), action, old_status, new_status, actor, notes, created_at }]
+const apiAuditLog = (limit=50) => apiFetch(`${API.remediation}/audit-log?limit=${limit}`);
+
+// POST /ingest/trivy → ingest:8001 — multipart/form-data, field name: "file"
+// Returns: { message, count, scan_id }
+async function apiIngestTrivy(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API.ingest}/ingest/trivy`, { method:'POST', body:form });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// POST /ingest/openscap → ingest:8001 — multipart/form-data, field name: "file"
+// Returns: { message, count }
+async function apiIngestOpenscap(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API.ingest}/ingest/openscap`, { method:'POST', body:form });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// POST /prioritize/run → prioritizer:8002
+// Returns: { message: "Scored N vulnerabilities" }
+const apiPrioritizeRun = () => apiFetch(`${API.prioritizer}/prioritize/run`, { method:'POST' });
+
+// GET /health on all three services
+async function apiHealth() {
+  const results = await Promise.allSettled([
+    apiFetch(`${API.ingest}/health`),
+    apiFetch(`${API.prioritizer}/health`),
+    apiFetch(`${API.remediation}/health`),
+  ]);
+  return results.map((r,i) => ({
+    service: ['ingest','prioritizer','remediation'][i],
+    ok: r.status === 'fulfilled',
+  }));
+}
+
+// ─── App state ────────────────────────────────────────────────────────────────
+const STATE = { vulns:[], stats:null, dashFilter:'all', vulnFilter:'all' };
+
+// ─── Error banner ─────────────────────────────────────────────────────────────
+function showError(msg) {
+  document.getElementById('global-error-msg').textContent = msg;
+  document.getElementById('global-error').style.display = 'flex';
+}
+
+// ─── Spinner helper ───────────────────────────────────────────────────────────
+function spin(id, on) {
+  document.getElementById(id).style.display = on ? 'inline-block' : 'none';
+}
+
+// ─── Clock ────────────────────────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('live-clock').textContent =
+    new Date().toUTCString().slice(17,25) + ' UTC';
+}, 1000);
+
+// ─── Health polling ───────────────────────────────────────────────────────────
+async function checkHealth() {
+  const results = await apiHealth().catch(() => []);
+  if (!results.length) return;
+  const el = document.getElementById('health-indicator');
+  const down = results.filter(r => !r.ok);
+  el.innerHTML = down.length === 0
+    ? `<div class="status-dot" style="background:var(--teal);animation:pulse 3s infinite"></div><span>ALL SERVICES OPERATIONAL</span>`
+    : down.map(d => `<div class="status-dot" style="background:var(--red)"></div><span style="color:var(--red)">${d.service.toUpperCase()} DOWN</span>`).join('');
+}
+
+// ─── Data loading ─────────────────────────────────────────────────────────────
+async function loadData() {
+  spin('dash-spinner', true);
+  spin('vuln-spinner', true);
+  try {
+    const [vulns, stats] = await Promise.all([apiVulns(), apiStats()]);
+    STATE.vulns  = vulns;
+    STATE.stats  = stats;
+    renderStats();
+    renderDashTable();
+    renderVulnTable();
+    renderPipeline();
+    updateBadges();
+  } catch(e) {
+    showError(`Backend unreachable: ${e.message} — is docker compose up?`);
+  } finally {
+    spin('dash-spinner', false);
+    spin('vuln-spinner', false);
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function slaInfo(v) {
+  if (!v.sla_deadline) return { cls:'sla-ok', label:'N/A' };
+  const d = new Date(v.sla_deadline), n = new Date();
+  if (v.status === 'remediated') return { cls:'sla-ok', label:'Done' };
+  if (d < n) return { cls:'sla-breached', label:'BREACHED' };
+  const h = Math.round((d-n)/3600000);
+  if (h < 48) return { cls:'sla-warning', label:`${h}h left` };
+  return { cls:'sla-ok', label:`${Math.round((d-n)/86400000)}d left` };
+}
+
+// ai_remediation comes back from PostgreSQL as a JSON string — parse it safely
+function parseAI(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function sevBadge(sev) { return `<span class="severity-badge sev-${sev}">${sev}</span>`; }
+function slaBadge(v)   { const s=slaInfo(v); return `<span class="sla-badge ${s.cls}">${s.label}</span>`; }
+function stsBadge(st)  { return `<span class="status-badge ${st}">${st}</span>`; }
+function epssCell(score) {
+  if (score == null) return `<span class="score-val">—</span>`;
+  const pct = (score*100).toFixed(1);
+  const color = score>0.5?'var(--red)':score>0.2?'var(--orange)':'var(--teal)';
+  return `<span class="score-val${score>0.5?' danger':''}">${pct}%</span>
+          <div class="epss-bar"><div class="epss-fill" style="width:${Math.min(100,Math.round(score*100))}%;background:${color}"></div></div>`;
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
+function renderStats() {
+  const s = STATE.stats;
+  if (!s) return;
+  document.getElementById('s-critical').textContent   = s.critical   ?? '—';
+  document.getElementById('s-high').textContent       = s.high       ?? '—';
+  document.getElementById('s-sla').textContent        = s.sla_breached ?? '—';
+  document.getElementById('s-sla-sub').textContent    = `${s.sla_warning ?? '—'} at risk within 48h`;
+  document.getElementById('s-remediated').textContent = s.remediated_count ?? '—';
+  document.getElementById('s-total-sub').textContent  = `of ${s.total ?? '—'} total`;
+
+  const slaInd = document.getElementById('sla-indicator');
+  if ((s.sla_breached||0) > 0) {
+    slaInd.style.display = 'flex';
+    document.getElementById('sla-breach-label').textContent = `${s.sla_breached} SLA BREACHED`;
+  } else {
+    slaInd.style.display = 'none';
+  }
+
+  // Severity bar chart
+  const max = Math.max(s.critical, s.high, s.medium, s.low, 1);
+  document.getElementById('severity-bars').innerHTML = [
+    {l:'CRITICAL', v:s.critical, c:'var(--red)'},
+    {l:'HIGH',     v:s.high,     c:'var(--orange)'},
+    {l:'MEDIUM',   v:s.medium,   c:'var(--blue)'},
+    {l:'LOW',      v:s.low,      c:'var(--teal)'},
+  ].map(({l,v,c}) => `
+    <div class="bar-row">
+      <div class="bar-label">${l}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(v/max*100)}%;background:${c}"></div></div>
+      <div class="bar-count">${v}</div>
+    </div>`).join('');
+
+  // Donut — status groups derived from live vuln array
+  const vs = STATE.vulns;
+  const groups = [
+    {l:'Open',        c:vs.filter(v=>v.status==='open').length,        col:'#888798'},
+    {l:'Enriched',    c:vs.filter(v=>v.status==='enriched').length,    col:'var(--blue)'},
+    {l:'Prioritized', c:vs.filter(v=>v.status==='prioritized').length, col:'var(--orange)'},
+    {l:'Ticketed',    c:vs.filter(v=>v.status==='ticketed').length,    col:'#60a5fa'},
+    {l:'Remediated',  c:s.remediated_count||0,                         col:'var(--teal)'},
+  ].filter(g => g.c > 0);
+  renderDonut(groups, s.total||1);
+
+  // Asset bar chart
+  const maxA = Math.max(...(s.top_assets||[]).map(a=>a.count), 1);
+  document.getElementById('asset-bars').innerHTML = (s.top_assets||[]).slice(0,6).map(({asset,count}) => `
+    <div class="bar-row">
+      <div class="bar-label" title="${asset}">${asset.split(':')[0]}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(count/maxA*100)}%;background:var(--gray-500)"></div></div>
+      <div class="bar-count">${count}</div>
+    </div>`).join('');
+}
+
+function renderDonut(groups, total) {
+  const svg = document.getElementById('donut-svg');
+  let angle = -Math.PI/2;
+  const paths = groups.map(g => {
+    const sweep = (g.c/total)*2*Math.PI;
+    const x1=40+28*Math.cos(angle), y1=40+28*Math.sin(angle);
+    angle += sweep;
+    const x2=40+28*Math.cos(angle), y2=40+28*Math.sin(angle);
+    return `<path d="M40 40 L${x1.toFixed(2)} ${y1.toFixed(2)} A28 28 0 ${sweep>Math.PI?1:0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${g.col}" opacity=".85"/>`;
+  });
+  svg.innerHTML = paths.join('')
+    + `<circle cx="40" cy="40" r="18" fill="var(--gray-800)"/>`
+    + `<text x="40" y="37" text-anchor="middle" fill="var(--gray-100)" font-family="'Space Mono',monospace" font-size="12" font-weight="700">${total}</text>`
+    + `<text x="40" y="48" text-anchor="middle" fill="var(--gray-400)" font-family="'Space Mono',monospace" font-size="7">TOTAL</text>`;
+  document.getElementById('donut-legend').innerHTML = groups.map(g => `
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${g.col}"></div>
+      <span>${g.l}</span>
+      <span class="legend-count">${g.c}</span>
+    </div>`).join('');
+}
+
+function updateBadges() {
+  const open = STATE.vulns.filter(v => v.status !== 'remediated').length;
+  const badge = document.getElementById('open-badge');
+  badge.textContent = open;
+  badge.style.display = open > 0 ? 'inline-block' : 'none';
+}
+
+// ─── Tables ───────────────────────────────────────────────────────────────────
+function vulnRow(v, showPkg=false) {
+  const cvssVal = v.cvss_score != null ? Number(v.cvss_score).toFixed(1) : '—';
+  const cvssClass = Number(v.cvss_score) >= 9 ? ' danger' : '';
+  const pkgCell = showPkg ? `<td><span class="asset-name" style="font-size:11px">${v.package||'—'}</span></td>` : '';
+  return `<tr onclick="openDetail('${v.id}')">
+    <td><span class="cve-id">${v.cve_id}</span></td>
+    <td><span class="asset-name">${v.asset}</span></td>
+    ${pkgCell}
+    <td>${sevBadge(v.severity)}</td>
+    <td><span class="score-val${cvssClass}">${cvssVal}</span></td>
+    <td>${epssCell(v.epss_score)}</td>
+    <td>${slaBadge(v)}</td>
+    <td>${stsBadge(v.status)}</td>
+  </tr>`;
+}
+
+function renderDashTable() {
+  const f = STATE.dashFilter;
+  const rows = STATE.vulns.filter(v =>
+    (f==='all' || v.severity===f) && ['CRITICAL','HIGH'].includes(v.severity)
+  );
+  document.getElementById('dash-tbody').innerHTML = rows.length
+    ? rows.map(v => vulnRow(v)).join('')
+    : `<tr class="empty-row"><td colspan="7">No vulnerabilities match filter</td></tr>`;
+}
+
+function renderVulnTable() {
+  const f = STATE.vulnFilter;
+  const rows = STATE.vulns.filter(v => f==='all' || v.severity===f);
+  document.getElementById('vuln-tbody').innerHTML = rows.length
+    ? rows.map(v => vulnRow(v, true)).join('')
+    : `<tr class="empty-row"><td colspan="8">No vulnerabilities match filter</td></tr>`;
+}
+
+function dashFilter(f, el) {
+  STATE.dashFilter = f;
+  document.querySelectorAll('#dash-filters .pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  renderDashTable();
+}
+
+function vulnFilter(f, el) {
+  STATE.vulnFilter = f;
+  document.querySelectorAll('#vuln-filters .pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  renderVulnTable();
+}
+
+// ─── Pipeline ─────────────────────────────────────────────────────────────────
+function renderPipeline() {
+  ['enriched','prioritized','ticketed','remediated'].forEach(stage => {
+    const items = STATE.vulns.filter(v => v.status === stage);
+    document.getElementById(`col-${stage}-count`).textContent = items.length;
+    document.getElementById(`col-${stage}`).innerHTML = items.length
+      ? items.map(v => `
+        <div class="pipeline-card" onclick="openDetail('${v.id}')">
+          <div class="pipeline-card-cve">${v.cve_id}</div>
+          <div class="pipeline-card-asset">${v.asset}</div>
+          <div class="pipeline-card-meta">
+            ${sevBadge(v.severity)}
+            ${v.jira_ticket ? `<span style="font-family:var(--mono);font-size:10px;color:var(--blue)">${v.jira_ticket}</span>` : ''}
+          </div>
+        </div>`).join('')
+      : `<div class="pipeline-empty">No items</div>`;
+  });
+}
+
+async function runPrioritization() {
+  const btn = document.getElementById('prioritize-btn');
+  const res = document.getElementById('prioritize-result');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:12px;height:12px"></div> Running AI Scorer...';
+  res.style.display = 'none';
+  try {
+    const r = await apiPrioritizeRun();
+    res.textContent = '✓ ' + r.message;
+    res.style.color = 'var(--teal)';
+    await loadData();
+  } catch(e) {
+    res.textContent = '✗ ' + e.message;
+    res.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '▶ Run AI Prioritization';
+    res.style.display = 'inline';
+  }
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+async function loadAuditLog() {
+  spin('audit-spinner', true);
+  try {
+    const entries = await apiAuditLog();
+    const tbody = document.getElementById('audit-tbody');
+    tbody.innerHTML = entries.length
+      ? entries.map(a => `
+        <tr>
+          <td style="font-family:var(--mono);font-size:11px;color:var(--gray-400)">${new Date(a.created_at).toLocaleString()}</td>
+          <td><span class="cve-id" style="font-size:11px">${String(a.vuln_id||'').slice(0,8)||'—'}</span></td>
+          <td style="font-family:var(--mono);font-size:10px;color:var(--gray-200)">${a.action}</td>
+          <td>${stsBadge(a.old_status)}</td>
+          <td>${stsBadge(a.new_status)}</td>
+          <td style="font-family:var(--mono);font-size:11px;color:var(--gray-400)">${a.actor}</td>
+          <td style="font-size:12px;color:var(--gray-400)">${a.notes||''}</td>
+        </tr>`).join('')
+      : `<tr class="empty-row"><td colspan="7">No audit entries yet</td></tr>`;
+  } catch(e) {
+    showError(`Audit log unavailable: ${e.message}`);
+  } finally {
+    spin('audit-spinner', false);
+  }
+}
+
+// ─── Detail panel ─────────────────────────────────────────────────────────────
+function openDetail(id) {
+  const v = STATE.vulns.find(x => x.id == id);
+  if (!v) return;
+  const sla = slaInfo(v);
+  const ai  = parseAI(v.ai_remediation);
+  const steps = ai.steps || [];
+
+  document.getElementById('detail-content').innerHTML = `
+    <div class="detail-cve">${v.cve_id}</div>
+    <div class="detail-asset">${v.asset} · ${(v.source||'').toUpperCase()}</div>
+    <div class="detail-badges">
+      ${sevBadge(v.severity)}
+      <span class="sla-badge ${sla.cls}">${sla.label}</span>
+      ${stsBadge(v.status)}
+      ${v.jira_ticket ? `<span class="jira-badge">${v.jira_ticket}</span>` : ''}
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-title">Vulnerability Data</div>
+      <div class="detail-grid">
+        <div><div class="detail-field-label">CVSS Score</div><div class="detail-field-value">${v.cvss_score!=null?Number(v.cvss_score).toFixed(1):'N/A'}</div></div>
+        <div><div class="detail-field-label">EPSS Score</div><div class="detail-field-value">${v.epss_score!=null?((v.epss_score*100).toFixed(2)+'%'):'N/A'}</div></div>
+        <div><div class="detail-field-label">Package</div><div class="detail-field-value">${v.package||'N/A'}</div></div>
+        <div><div class="detail-field-label">Installed</div><div class="detail-field-value" style="font-size:11px">${v.installed_version||'N/A'}</div></div>
+        <div><div class="detail-field-label">Fixed Version</div><div class="detail-field-value" style="font-size:11px;color:var(--teal)">${v.fixed_version||'Not available'}</div></div>
+        <div><div class="detail-field-label">SLA Deadline</div><div class="detail-field-value" style="font-size:11px">${v.sla_deadline?new Date(v.sla_deadline).toLocaleDateString():'N/A'}</div></div>
+      </div>
+    </div>
+    ${v.description?`<div class="detail-section">
+      <div class="detail-section-title">Description</div>
+      <div class="detail-description">${v.description}</div>
+    </div>`:''}
+    <div class="detail-section">
+      <div class="detail-section-title">AI Risk Assessment</div>
+      <div class="ai-rationale">${v.ai_rationale||'Not yet assessed — run AI Prioritization to score this vulnerability'}</div>
+    </div>
+    ${steps.length?`<div class="detail-section">
+      <div class="detail-section-title">Remediation Steps</div>
+      ${steps.map((s,i)=>`<div class="remediation-step"><div class="step-num">${i+1}</div><div class="step-text">${s}</div></div>`).join('')}
+      ${ai.compensating_controls?`<div class="compensating-block"><div class="compensating-label">COMPENSATING CONTROLS</div><div class="compensating-text">${ai.compensating_controls}</div></div>`:''}
+    </div>`:''}
+    <div class="detail-actions">
+      ${v.status!=='remediated'?`<button class="btn btn-primary" id="remediate-btn" onclick="markRemediated('${v.id}')">✓ Mark Remediated</button>`:''}
+      <button class="btn btn-outline" onclick="closeDetail()">Close</button>
+    </div>`;
+
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+}
+
+async function markRemediated(id) {
+  const btn = document.getElementById('remediate-btn');
+  if (btn) { btn.disabled=true; btn.innerHTML='<div class="spinner" style="width:12px;height:12px"></div> Updating...'; }
+
+  // Optimistic update — instant UI feedback before server confirms
+  const v = STATE.vulns.find(x => x.id == id);
+  if (v) v.status = 'remediated';
+  renderDashTable(); renderVulnTable(); renderPipeline(); updateBadges();
+  closeDetail();
+
+  try {
+    // PATCH /vulnerabilities/{id}/status?status=remediated&notes=...&actor=...
+    await apiPatchStatus(id, 'remediated', 'Marked via dashboard', 'dashboard-user');
+    // Refresh server-computed stats after patch confirmed
+    STATE.stats = await apiStats();
+    renderStats();
+  } catch(e) {
+    showError(`Status update failed: ${e.message}`);
+    await loadData(); // rollback by re-fetching real state
+  }
+}
+
+// ─── Ingest ───────────────────────────────────────────────────────────────────
+let pendingUploadType = null;
+
+function triggerUpload(type) {
+  pendingUploadType = type;
+  const input = document.getElementById('file-input');
+  input.accept = type === 'trivy' ? '.json' : '.xml';
+  input.click();
+}
+
+async function handleFileUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const log = document.getElementById('ingest-log');
+  log.textContent = '';
+  log.classList.add('visible');
+  document.getElementById('trivy-btn').disabled   = true;
+  document.getElementById('openscap-btn').disabled = true;
+
+  const append = line => { log.textContent += line + '\n'; };
+
+  try {
+    append(`→ Uploading ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
+    const fn = pendingUploadType === 'trivy' ? apiIngestTrivy : apiIngestOpenscap;
+    const result = await fn(file);
+    append(`→ Vulnerabilities found: ${result.count}`);
+    if (result.scan_id) append(`→ Scan ID: ${result.scan_id}`);
+    append(`✓ Queued for enrichment — refreshing dashboard...`);
+    await loadData();
+    append(`✓ Dashboard updated`);
+  } catch(err) {
+    append(`✗ Error: ${err.message}`);
+  } finally {
+    document.getElementById('trivy-btn').disabled   = false;
+    document.getElementById('openscap-btn').disabled = false;
+    e.target.value = '';
+  }
+}
+
+// ─── API Docs ─────────────────────────────────────────────────────────────────
+document.getElementById('docs-endpoints').innerHTML = [
+  {m:'GET',  mc:'#34d399',mb:'rgba(29,158,117,.1)', svc:'ingest:8001',      p:'/health',                      d:'Health check'},
+  {m:'POST', mc:'#60a5fa',mb:'rgba(55,138,221,.1)', svc:'ingest:8001',      p:'/ingest/trivy',                d:'Upload Trivy JSON — multipart, field: file'},
+  {m:'POST', mc:'#60a5fa',mb:'rgba(55,138,221,.1)', svc:'ingest:8001',      p:'/ingest/openscap',             d:'Upload OpenSCAP XML — multipart, field: file'},
+  {m:'POST', mc:'#60a5fa',mb:'rgba(55,138,221,.1)', svc:'ingest:8001',      p:'/ingest/json',                 d:'POST JSON array of vulnerability objects'},
+  {m:'GET',  mc:'#34d399',mb:'rgba(29,158,117,.1)', svc:'prioritizer:8002', p:'/vulnerabilities',             d:'List — query: severity, status, risk_tier, limit, offset'},
+  {m:'GET',  mc:'#34d399',mb:'rgba(29,158,117,.1)', svc:'prioritizer:8002', p:'/stats',                       d:'Counts by severity + SLA + top_assets + by_source'},
+  {m:'POST', mc:'#60a5fa',mb:'rgba(55,138,221,.1)', svc:'prioritizer:8002', p:'/prioritize/run',              d:'Trigger AI scoring batch — query param: limit'},
+  {m:'PATCH',mc:'#c084fc',mb:'rgba(167,139,250,.1)',svc:'prioritizer:8002', p:'/vulnerabilities/{id}/status', d:'Update status — query params: status, notes, actor'},
+  {m:'GET',  mc:'#34d399',mb:'rgba(29,158,117,.1)', svc:'remediation:8003', p:'/audit-log',                   d:'Fetch audit log — query: vuln_id (optional), limit'},
+  {m:'POST', mc:'#60a5fa',mb:'rgba(55,138,221,.1)', svc:'remediation:8003', p:'/remediation/run',             d:'Process prioritized vulns → Jira tickets + Ansible'},
+].map(e => `
+  <div class="endpoint-row">
+    <span class="method-badge" style="background:${e.mb};color:${e.mc}">${e.m}</span>
+    <span class="endpoint-svc">${e.svc}</span>
+    <span class="endpoint-path">${e.p}</span>
+    <span class="endpoint-desc">${e.d}</span>
+  </div>`).join('');
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function nav(page, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  el.classList.add('active');
+  closeDetail();
+  if (page === 'audit')    loadAuditLog();
+  if (page === 'pipeline') renderPipeline();
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+checkHealth();
+setInterval(checkHealth, 30000);
+loadData();
+</script>
+</body>
+</html>

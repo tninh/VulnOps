@@ -1,0 +1,191 @@
+name: VulnOps CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+
+  # ─── Lint & Test ───────────────────────────────────────────────────────────
+
+  test:
+    name: Lint + Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: vulnops_test
+          POSTGRES_USER: vulnops
+          POSTGRES_PASSWORD: vulnops
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install \
+            pytest pytest-cov pytest-asyncio \
+            fastapi uvicorn pydantic \
+            redis celery \
+            psycopg2-binary requests \
+            prometheus-client
+
+      - name: Lint with ruff
+        run: |
+          pip install ruff
+          ruff check ingest/ enrichment/ prioritizer/ remediation/ tests/
+
+      - name: Type check with mypy
+        run: |
+          pip install mypy types-requests
+          mypy ingest/main.py enrichment/worker.py prioritizer/main.py --ignore-missing-imports
+        continue-on-error: true  # non-blocking for now
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://vulnops:vulnops@localhost:5432/vulnops_test
+          REDIS_URL: redis://localhost:6379/0
+          OPENAI_API_KEY: ""  # use heuristic fallback in CI
+        run: |
+          pytest tests/test_vulnops.py -v --cov=. --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ─── Security scan ─────────────────────────────────────────────────────────
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy on repo
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: 0  # non-blocking; results published as artifact
+
+      - name: Dependency audit
+        run: |
+          pip install pip-audit
+          pip-audit -r ingest/requirements.txt --severity high || true
+
+  # ─── Build & Push ──────────────────────────────────────────────────────────
+
+  build:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.ref == 'refs/heads/main'
+
+    strategy:
+      matrix:
+        service: [ingest, enrichment, prioritizer, remediation]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          IMAGE_URI=$ECR_REGISTRY/vulnops/$SERVICE
+
+          docker build -t $IMAGE_URI:$IMAGE_TAG -t $IMAGE_URI:latest ./$SERVICE
+
+          docker push $IMAGE_URI:$IMAGE_TAG
+          docker push $IMAGE_URI:latest
+
+          echo "IMAGE_URI=$IMAGE_URI:$IMAGE_TAG" >> $GITHUB_ENV
+
+  # ─── Deploy ────────────────────────────────────────────────────────────────
+
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy ingest service
+        run: |
+          aws ecs update-service \
+            --cluster vulnops-production \
+            --service vulnops-ingest \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Deploy prioritizer service
+        run: |
+          aws ecs update-service \
+            --cluster vulnops-production \
+            --service vulnops-prioritizer \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Wait for stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster vulnops-production \
+            --services vulnops-ingest vulnops-prioritizer \
+            --region $AWS_REGION
+
+      - name: Smoke test
+        run: |
+          sleep 10
+          curl -f https://vulnops.internal/health || exit 1
+          echo "✓ Deployment verified"

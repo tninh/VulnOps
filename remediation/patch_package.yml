@@ -1,0 +1,120 @@
+---
+# VulnOps Auto-Patch Playbook
+# Triggered by the remediation service for CRITICAL vulnerabilities
+# with an available fixed version.
+#
+# Usage (manual):
+#   ansible-playbook patch_package.yml \
+#     --extra-vars "target_host=web-01 package_name=openssl target_version=3.0.8 cve_id=CVE-2023-0286"
+
+- name: VulnOps Automated Package Patch
+  hosts: "{{ target_host | default('localhost') }}"
+  become: true
+  gather_facts: true
+  vars:
+    package_name: "{{ package_name }}"
+    target_version: "{{ target_version | default('latest') }}"
+    cve_id: "{{ cve_id | default('unknown') }}"
+    backup_configs: true
+    verify_after_patch: true
+
+  pre_tasks:
+    - name: Log patch start
+      ansible.builtin.shell: |
+        logger "VulnOps: Starting patch for {{ cve_id }} — package {{ package_name }} on {{ inventory_hostname }}"
+      changed_when: false
+
+    - name: Verify package exists
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Fail if package not installed
+      ansible.builtin.fail:
+        msg: "Package {{ package_name }} is not installed — skipping"
+      when: package_name not in ansible_facts.packages
+      tags: [never, validate]
+
+    - name: Record pre-patch package version
+      ansible.builtin.shell: >
+        {% if ansible_os_family == 'Debian' %}
+        dpkg -l {{ package_name }} | awk 'NR==4{print $3}'
+        {% elif ansible_os_family == 'RedHat' %}
+        rpm -q --queryformat '%{VERSION}-%{RELEASE}' {{ package_name }}
+        {% else %}
+        echo "unknown"
+        {% endif %}
+      register: pre_patch_version
+      changed_when: false
+
+    - name: Display pre-patch state
+      ansible.builtin.debug:
+        msg: "Patching {{ package_name }} from {{ pre_patch_version.stdout }} → {{ target_version }} for {{ cve_id }}"
+
+  tasks:
+    - name: Patch package (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: >-
+          {{ package_name }}{% if target_version != 'latest' %}={{ target_version }}{% endif %}
+        state: "{{ 'latest' if target_version == 'latest' else 'present' }}"
+        update_cache: true
+        force_apt_get: true
+      when: ansible_os_family == "Debian"
+      tags: [patch]
+      notify: Restart affected service
+
+    - name: Patch package (RHEL/CentOS/Amazon Linux)
+      ansible.builtin.yum:
+        name: >-
+          {{ package_name }}{% if target_version != 'latest' %}-{{ target_version }}{% endif %}
+        state: "{{ 'latest' if target_version == 'latest' else 'present' }}"
+        update_cache: true
+      when: ansible_os_family == "RedHat"
+      tags: [patch]
+      notify: Restart affected service
+
+    - name: Record post-patch package version
+      ansible.builtin.shell: >
+        {% if ansible_os_family == 'Debian' %}
+        dpkg -l {{ package_name }} | awk 'NR==4{print $3}'
+        {% elif ansible_os_family == 'RedHat' %}
+        rpm -q --queryformat '%{VERSION}-%{RELEASE}' {{ package_name }}
+        {% else %}
+        echo "unknown"
+        {% endif %}
+      register: post_patch_version
+      changed_when: false
+
+    - name: Verify version changed
+      ansible.builtin.assert:
+        that:
+          - post_patch_version.stdout != pre_patch_version.stdout or target_version == 'latest'
+        fail_msg: "Package version did not change after patching — manual review required"
+        success_msg: "Package successfully updated to {{ post_patch_version.stdout }}"
+      when: verify_after_patch
+
+  post_tasks:
+    - name: Log patch completion
+      ansible.builtin.shell: |
+        logger "VulnOps: Patch complete for {{ cve_id }} — {{ package_name }} now at {{ post_patch_version.stdout }}"
+      changed_when: false
+
+    - name: Write patch record
+      ansible.builtin.copy:
+        content: |
+          {
+            "cve_id": "{{ cve_id }}",
+            "package": "{{ package_name }}",
+            "from_version": "{{ pre_patch_version.stdout }}",
+            "to_version": "{{ post_patch_version.stdout }}",
+            "host": "{{ inventory_hostname }}",
+            "patched_at": "{{ ansible_date_time.iso8601 }}",
+            "patched_by": "vulnops-ansible"
+          }
+        dest: "/var/log/vulnops/patches/{{ cve_id }}_{{ inventory_hostname }}.json"
+        mode: '0644'
+      ignore_errors: true
+
+  handlers:
+    - name: Restart affected service
+      ansible.builtin.debug:
+        msg: "Service restart may be required for {{ package_name }} — review manually or add service-specific handler"
